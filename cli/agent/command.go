@@ -22,6 +22,7 @@ import (
 	"github.com/andydunstall/piko/pkg/build"
 	pikoconfig "github.com/andydunstall/piko/pkg/config"
 	"github.com/andydunstall/piko/pkg/log"
+	"github.com/andydunstall/piko/pkg/middleware"
 )
 
 func NewCommand() *cobra.Command {
@@ -124,6 +125,7 @@ func runAgent(conf *config.Config, logger log.Logger) error {
 
 	var group rungroup.Group
 
+	agentMetrics := middleware.NewMetrics("agent")
 	for _, listenerConfig := range conf.Listeners {
 		connectCtx, connectCancel := context.WithTimeout(
 			context.Background(),
@@ -138,7 +140,7 @@ func runAgent(conf *config.Config, logger log.Logger) error {
 		defer ln.Close()
 
 		if listenerConfig.Protocol == config.ListenerProtocolHTTP {
-			server := reverseproxy.NewServer(listenerConfig, registry, logger)
+			server := reverseproxy.NewServer(listenerConfig, agentMetrics, logger)
 
 			// Listener handler.
 			group.Add(func() error {
@@ -175,6 +177,7 @@ func runAgent(conf *config.Config, logger log.Logger) error {
 			panic("unsupported protocol: " + listenerConfig.Protocol)
 		}
 	}
+	agentMetrics.Register(registry)
 
 	// Agent server.
 	if conf.Server.Enabled {

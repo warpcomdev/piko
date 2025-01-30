@@ -10,23 +10,24 @@ import (
 )
 
 type Metrics struct {
-	RequestsInFlight prometheus.Gauge
+	RequestsInFlight *prometheus.GaugeVec
 	RequestsTotal    *prometheus.CounterVec
 	RequestLatency   *prometheus.HistogramVec
-	RequestSize      prometheus.Histogram
-	ResponseSize     prometheus.Histogram
+	RequestSize      *prometheus.HistogramVec
+	ResponseSize     *prometheus.HistogramVec
 }
 
 func NewMetrics(subsystem string) *Metrics {
 	sizeBuckets := prometheus.ExponentialBuckets(256, 4, 8)
 	return &Metrics{
-		RequestsInFlight: prometheus.NewGauge(
+		RequestsInFlight: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "piko",
 				Subsystem: subsystem,
 				Name:      "requests_in_flight",
 				Help:      "Number of requests currently handled by this server.",
 			},
+			[]string{"endpoint"},
 		),
 		RequestsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -35,7 +36,7 @@ func NewMetrics(subsystem string) *Metrics {
 				Name:      "requests_total",
 				Help:      "Total requests.",
 			},
-			[]string{"status", "method"},
+			[]string{"endpoint", "status", "method"},
 		),
 		RequestLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -45,9 +46,9 @@ func NewMetrics(subsystem string) *Metrics {
 				Help:      "Request latency.",
 				Buckets:   prometheus.DefBuckets,
 			},
-			[]string{"status", "method"},
+			[]string{"endpoint", "status", "method"},
 		),
-		RequestSize: prometheus.NewHistogram(
+		RequestSize: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "piko",
 				Subsystem: subsystem,
@@ -55,8 +56,9 @@ func NewMetrics(subsystem string) *Metrics {
 				Help:      "Request size",
 				Buckets:   sizeBuckets,
 			},
+			[]string{"endpoint"},
 		),
-		ResponseSize: prometheus.NewHistogram(
+		ResponseSize: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "piko",
 				Subsystem: subsystem,
@@ -64,14 +66,19 @@ func NewMetrics(subsystem string) *Metrics {
 				Help:      "Response size",
 				Buckets:   sizeBuckets,
 			},
+			[]string{"endpoint"},
 		),
 	}
 }
 
-func (m *Metrics) Handler() gin.HandlerFunc {
+// Handler collects metric for a  particular endpointID (which might be empty)
+func (m *Metrics) Handler(endpointID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m.RequestsInFlight.Inc()
-		defer m.RequestsInFlight.Dec()
+		requestsInFlight := m.RequestsInFlight.With(prometheus.Labels{
+			"endpoint": endpointID,
+		})
+		requestsInFlight.Inc()
+		defer requestsInFlight.Dec()
 
 		start := time.Now()
 
@@ -79,15 +86,18 @@ func (m *Metrics) Handler() gin.HandlerFunc {
 		c.Next()
 
 		m.RequestsTotal.With(prometheus.Labels{
-			"status": strconv.Itoa(c.Writer.Status()),
-			"method": c.Request.Method,
+			"endpoint": endpointID,
+			"status":   strconv.Itoa(c.Writer.Status()),
+			"method":   c.Request.Method,
 		}).Inc()
 		m.RequestLatency.With(prometheus.Labels{
-			"status": strconv.Itoa(c.Writer.Status()),
-			"method": c.Request.Method,
+			"endpoint": endpointID,
+			"status":   strconv.Itoa(c.Writer.Status()),
+			"method":   c.Request.Method,
 		}).Observe(float64(time.Since(start).Milliseconds()) / 1000)
-		m.RequestSize.Observe(float64(computeApproximateRequestSize(c.Request)))
-		m.ResponseSize.Observe(float64(c.Writer.Size()))
+
+		m.RequestSize.WithLabelValues(endpointID).Observe(float64(computeApproximateRequestSize(c.Request)))
+		m.ResponseSize.WithLabelValues(endpointID).Observe(float64(c.Writer.Size()))
 	}
 }
 
