@@ -72,7 +72,7 @@ func NewServer(
 	if registry != nil {
 		metrics.Register(registry)
 	}
-	router.Use(metrics.Handler())
+	router.Use(metrics.Handler(""))
 
 	s.registerRoutes(router)
 
