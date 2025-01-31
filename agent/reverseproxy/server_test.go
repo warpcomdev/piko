@@ -1,6 +1,7 @@
 package reverseproxy
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -41,9 +42,9 @@ func TestServer_Forward(t *testing.T) {
 	t.Run("multiendpoint", func(t *testing.T) {
 
 		upstream := httptest.NewServer(http.HandlerFunc(
-			func(w http.ResponseWriter, r *http.Request) {
-				// nolint
+			func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
+				// nolint
 				w.Write([]byte("bar"))
 			},
 		))
@@ -73,7 +74,9 @@ func TestServer_Forward(t *testing.T) {
 
 			server := NewServer(cfg, metrics, log.NewNopLogger())
 			go func() {
-				server.Serve(ln)
+				if err := server.Serve(ln); !errors.Is(err, net.ErrClosed) {
+					panic(err)
+				}
 			}()
 
 			body := mustGet(t, fmt.Sprintf("http://localhost:%d/foo/bar?a=b", lnPort))
