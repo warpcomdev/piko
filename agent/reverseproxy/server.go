@@ -27,7 +27,7 @@ type Server struct {
 
 func NewServer(
 	conf config.ListenerConfig,
-	metrics *middleware.Metrics,
+	metrics *middleware.LabeledMetrics,
 	logger log.Logger,
 ) *Server {
 	logger = logger.WithSubsystem("proxy.http")

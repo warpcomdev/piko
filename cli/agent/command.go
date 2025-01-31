@@ -125,7 +125,7 @@ func runAgent(conf *config.Config, logger log.Logger) error {
 
 	var group rungroup.Group
 
-	agentMetrics := middleware.NewMetrics("agent")
+	agentMetrics := middleware.NewLabeledMetrics(registry, "agent")
 	for _, listenerConfig := range conf.Listeners {
 		connectCtx, connectCancel := context.WithTimeout(
 			context.Background(),
@@ -177,7 +177,6 @@ func runAgent(conf *config.Config, logger log.Logger) error {
 			panic("unsupported protocol: " + listenerConfig.Protocol)
 		}
 	}
-	agentMetrics.Register(registry)
 
 	// Agent server.
 	if conf.Server.Enabled {

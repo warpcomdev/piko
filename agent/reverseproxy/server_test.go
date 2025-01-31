@@ -51,7 +51,7 @@ func TestServer_Forward(t *testing.T) {
 		defer upstream.Close()
 
 		registry := prometheus.NewRegistry()
-		metrics := middleware.NewMetrics("test")
+		metrics := middleware.NewLabeledMetrics(registry, "test")
 		configs := []config.ListenerConfig{
 			{
 				EndpointID: "my-endpoint",
@@ -82,7 +82,6 @@ func TestServer_Forward(t *testing.T) {
 			body := mustGet(t, fmt.Sprintf("http://localhost:%d/foo/bar?a=b", lnPort))
 			assert.Equal(t, "bar", body)
 		}
-		metrics.Register(registry)
 
 		t.Run("fist", func(t *testing.T) {
 			testConfig(t, configs[0])

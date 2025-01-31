@@ -68,12 +68,10 @@ func NewServer(
 
 	router.Use(middleware.NewLogger(proxyConfig.AccessLog, logger))
 
-	metrics := middleware.NewMetrics("proxy")
-	if registry != nil {
-		metrics.Register(registry)
+	metrics := middleware.NewMetrics(registry, "proxy")
+	if metrics != nil {
+		router.Use(metrics.Handler())
 	}
-	// endpointID left blank in server proxy
-	router.Use(metrics.Handler(""))
 
 	s.registerRoutes(router)
 
