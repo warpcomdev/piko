@@ -72,6 +72,7 @@ func NewServer(
 	if registry != nil {
 		metrics.Register(registry)
 	}
+	// endpointID left blank in server proxy
 	router.Use(metrics.Handler(""))
 
 	s.registerRoutes(router)
