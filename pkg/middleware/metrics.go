@@ -67,109 +67,118 @@ type LabeledMetrics struct {
 type Metrics struct {
 	RequestsInFlight prometheus.Gauge
 	RequestsTotal    *prometheus.CounterVec
+	RequestLatency   *prometheus.HistogramVec
+	RequestSize      prometheus.Histogram
+	ResponseSize     prometheus.Histogram
+}
+
+func NewLabeledMetrics(subsystem string) *LabeledMetrics {
+	opts := newOptions(subsystem)
+	return &LabeledMetrics{
+		RequestsInFlight: prometheus.NewGaugeVec(
+			opts.RequestsInFlight,
+			[]string{"endpoint"},
+		),
+		RequestsTotal: prometheus.NewCounterVec(
+			opts.RequestsTotal,
+			[]string{"endpoint", "status", "method"},
+		),
+		RequestLatency: prometheus.NewHistogramVec(
+			opts.RequestLatency,
+			[]string{"endpoint", "status", "method"},
+		),
+		RequestSize:  prometheus.NewHistogramVec(opts.RequestSize, []string{"endpoint"}),
+		ResponseSize: prometheus.NewHistogramVec(opts.ResponseSize, []string{"endpoint"}),
+	}
+}
+
+func (lm *LabeledMetrics) Register(registry prometheus.Registerer) {
+	registry.MustRegister(
+		lm.RequestsInFlight,
+		lm.RequestsTotal,
+		lm.RequestLatency,
+		lm.RequestSize,
+		lm.ResponseSize,
+	)
+}
+
+func NewMetrics(subsystem string) *Metrics {
+	opts := newOptions(subsystem)
+	return &Metrics{
+		RequestsInFlight: prometheus.NewGauge(opts.RequestsInFlight),
+		RequestsTotal: prometheus.NewCounterVec(opts.RequestsTotal,
+			[]string{"status", "method"},
+		),
+		RequestLatency: prometheus.NewHistogramVec(
+			opts.RequestLatency,
+			[]string{"status", "method"},
+		),
+		RequestSize:  prometheus.NewHistogram(opts.RequestSize),
+		ResponseSize: prometheus.NewHistogram(opts.ResponseSize),
+	}
+}
+
+func (m *Metrics) Register(registry prometheus.Registerer) {
+	registry.MustRegister(
+		m.RequestsInFlight,
+		m.RequestsTotal,
+		m.RequestLatency,
+		m.RequestSize,
+		m.ResponseSize,
+	)
+}
+
+type observer struct {
+	RequestsInFlight prometheus.Gauge
+	RequestsTotal    *prometheus.CounterVec
 	RequestLatency   prometheus.ObserverVec
 	RequestSize      prometheus.Observer
 	ResponseSize     prometheus.Observer
 }
 
-func NewLabeledMetrics(registry *prometheus.Registry, subsystem string) *LabeledMetrics {
-	if registry == nil {
-		return nil
-	}
-	opts := newOptions(subsystem)
-	requestsInFlight := prometheus.NewGaugeVec(
-		opts.RequestsInFlight,
-		[]string{"endpoint"},
-	)
-	requestsTotal := prometheus.NewCounterVec(
-		opts.RequestsTotal,
-		[]string{"endpoint", "status", "method"},
-	)
-	requestLatency := prometheus.NewHistogramVec(
-		opts.RequestLatency,
-		[]string{"endpoint", "status", "method"},
-	)
-	requestSize := prometheus.NewHistogramVec(opts.RequestSize, []string{"endpoint"})
-	responseSize := prometheus.NewHistogramVec(opts.ResponseSize, []string{"endpoint"})
-	registry.MustRegister(
-		requestsInFlight,
-		requestsTotal,
-		requestLatency,
-		requestSize,
-		responseSize,
-	)
-	return &LabeledMetrics{
-		RequestsInFlight: requestsInFlight,
-		RequestsTotal:    requestsTotal,
-		RequestLatency:   requestLatency,
-		RequestSize:      requestSize,
-		ResponseSize:     responseSize,
-	}
-}
-
 func (lm *LabeledMetrics) Handler(endpointID string) gin.HandlerFunc {
-	metrics := &Metrics{
+	obs := observer{
 		RequestsInFlight: lm.RequestsInFlight.WithLabelValues(endpointID),
 		RequestsTotal:    lm.RequestsTotal.MustCurryWith(prometheus.Labels{"endpoint": endpointID}),
 		RequestLatency:   lm.RequestLatency.MustCurryWith(prometheus.Labels{"endpoint": endpointID}),
 		RequestSize:      lm.RequestSize.WithLabelValues(endpointID),
 		ResponseSize:     lm.ResponseSize.WithLabelValues(endpointID),
 	}
-	return metrics.Handler()
-}
-
-func NewMetrics(registry *prometheus.Registry, subsystem string) *Metrics {
-	if registry == nil {
-		return nil
-	}
-	opts := newOptions(subsystem)
-	requestsInFlight := prometheus.NewGauge(opts.RequestsInFlight)
-	requestsTotal := prometheus.NewCounterVec(opts.RequestsTotal,
-		[]string{"status", "method"},
-	)
-	requestLatency := prometheus.NewHistogramVec(
-		opts.RequestLatency,
-		[]string{"status", "method"},
-	)
-	requestSize := prometheus.NewHistogram(opts.RequestSize)
-	responseSize := prometheus.NewHistogram(opts.ResponseSize)
-	registry.MustRegister(
-		requestsInFlight,
-		requestsTotal,
-		requestLatency,
-		requestSize,
-		responseSize,
-	)
-	return &Metrics{
-		RequestsInFlight: requestsInFlight,
-		RequestsTotal:    requestsTotal,
-		RequestLatency:   requestLatency,
-		RequestSize:      requestSize,
-		ResponseSize:     responseSize,
-	}
+	return obs.Handler()
 }
 
 func (m *Metrics) Handler() gin.HandlerFunc {
+	obs := observer{
+		RequestsInFlight: m.RequestsInFlight,
+		RequestsTotal:    m.RequestsTotal,
+		RequestLatency:   m.RequestLatency,
+		RequestSize:      m.RequestSize,
+		ResponseSize:     m.ResponseSize,
+	}
+	return obs.Handler()
+}
+
+func (o observer) Handler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		m.RequestsInFlight.Inc()
-		defer m.RequestsInFlight.Dec()
+		o.RequestsInFlight.Inc()
+		defer o.RequestsInFlight.Dec()
 
 		start := time.Now()
 
 		// Process request.
 		c.Next()
 
-		m.RequestsTotal.With(prometheus.Labels{
+		o.RequestsTotal.With(prometheus.Labels{
 			"status": strconv.Itoa(c.Writer.Status()),
 			"method": c.Request.Method,
 		}).Inc()
-		m.RequestLatency.With(prometheus.Labels{
+		o.RequestLatency.With(prometheus.Labels{
 			"status": strconv.Itoa(c.Writer.Status()),
 			"method": c.Request.Method,
 		}).Observe(float64(time.Since(start).Milliseconds()) / 1000)
 
-		m.RequestSize.Observe(float64(computeApproximateRequestSize(c.Request)))
-		m.ResponseSize.Observe(float64(c.Writer.Size()))
+		o.RequestSize.Observe(float64(computeApproximateRequestSize(c.Request)))
+		o.ResponseSize.Observe(float64(c.Writer.Size()))
 	}
 }
 

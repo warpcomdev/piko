@@ -68,8 +68,9 @@ func NewServer(
 
 	router.Use(middleware.NewLogger(proxyConfig.AccessLog, logger))
 
-	metrics := middleware.NewMetrics(registry, "proxy")
-	if metrics != nil {
+	if registry != nil {
+		metrics := middleware.NewMetrics("proxy")
+		metrics.Register(registry)
 		router.Use(metrics.Handler())
 	}
 

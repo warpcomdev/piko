@@ -51,7 +51,7 @@ func TestServer_Forward(t *testing.T) {
 		defer upstream.Close()
 
 		registry := prometheus.NewRegistry()
-		metrics := middleware.NewLabeledMetrics(registry, "test")
+		metrics := middleware.NewLabeledMetrics("test")
 		configs := []config.ListenerConfig{
 			{
 				EndpointID: "my-endpoint",
@@ -62,6 +62,7 @@ func TestServer_Forward(t *testing.T) {
 				Addr:       upstream.URL,
 			},
 		}
+		metrics.Register(registry)
 
 		testConfig := func(t *testing.T, cfg config.ListenerConfig) {
 			// Need a real listener to test Server
